@@ -58,8 +58,30 @@ properties:
       aperture start of a master's DMA window and fourth and fifth cell describe
       the size of DMA window.
 
+  apple,usb-ordered-init:
+    type: boolean
+    description:
+      T8030 USB DART child of the coordinated USB complex. Prepare and
+      hold its USB PHY powered before setting up translation tables.
+
+  phys:
+    maxItems: 1
+
+  phy-names:
+    items:
+      - const: usb2-phy
+
   power-domains:
     maxItems: 1
+
+allOf:
+  - if:
+      required:
+        - apple,usb-ordered-init
+    then:
+      required:
+        - phys
+        - phy-names
 
 required:
   - compatible

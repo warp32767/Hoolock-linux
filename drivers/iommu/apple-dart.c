@@ -29,6 +29,8 @@
 #include <linux/of_platform.h>
 #include <linux/pci.h>
 #include <linux/platform_device.h>
+#include <linux/phy/phy.h>
+#include <linux/property.h>
 #include <linux/slab.h>
 #include <linux/swab.h>
 #include <linux/types.h>
@@ -1294,6 +1296,38 @@ static irqreturn_t apple_dart_t8110_irq(int irq, void *dev)
 	return IRQ_HANDLED;
 }
 
+/* USB DART is a complex child, so shared resets have finished. */
+static void apple_dart_usb_phy_release(void *data)
+{
+	struct phy *phy = data;
+
+	phy_power_off(phy);
+	phy_exit(phy);
+}
+
+static int apple_dart_usb_phy_prepare(struct device *dev)
+{
+	struct phy *phy;
+	int ret;
+
+	if (!device_property_read_bool(dev, "apple,usb-ordered-init"))
+		return 0;
+	phy = devm_phy_get(dev, "usb2-phy");
+	if (IS_ERR(phy))
+		return dev_err_probe(dev, PTR_ERR(phy), "cannot get USB PHY\n");
+	ret = phy_init(phy);
+	if (ret)
+		return ret;
+	ret = phy_power_on(phy);
+	if (ret) {
+		phy_exit(phy);
+		return ret;
+	}
+
+	/* Hold one reference so gadget binding cannot power-cycle this PHY. */
+	return devm_add_action_or_reset(dev, apple_dart_usb_phy_release, phy);
+}
+
 static int apple_dart_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -1301,6 +1335,10 @@ static int apple_dart_probe(struct platform_device *pdev)
 	struct resource *res;
 	struct apple_dart *dart;
 	struct device *dev = &pdev->dev;
+
+	ret = apple_dart_usb_phy_prepare(dev);
+	if (ret)
+		return ret;
 
 	dart = devm_kzalloc(dev, sizeof(*dart), GFP_KERNEL);
 	if (!dart)

@@ -470,6 +470,35 @@
 			status = "disabled";
 		};
 
+		usb_complex: bus@239000000 {
+			compatible = "apple,t8030-usb-complex", "simple-pm-bus";
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+			dma-ranges = <0x0 0x00000000 0x8 0x00000000 0x1 0x00000000>;
+			reg = <0x2 0x39000000 0x0 0x60>;
+			power-domains = <&ps_usb>;
+			status = "disabled";
+
+			usb2dev: usb@239100000 {
+				compatible = "apple,t8030-dwc2", "apple,dwc2";
+				reg = <0x2 0x39100000 0x0 0x10000>;
+				/* PongoOS T8030 platform definition: otg_irq = 495. */
+				interrupts = <AIC_IRQ 495 IRQ_TYPE_LEVEL_HIGH>;
+				clocks = <&clkref>;
+				clock-names = "otg";
+				iommus = <&usb_dart1 0>;
+				phys = <&usb2phy PHY_TYPE_USB2>;
+				phy-names = "usb2-phy";
+				power-domains = <&ps_usb2dev>;
+				resets = <&ps_usb2dev>;
+				reset-names = "dwc2";
+				dr_mode = "peripheral";
+				maximum-speed = "high-speed";
+				status = "disabled";
+			};
+		};
+
 		ans_mbox: mbox@277408000 {
 			compatible = "apple,t8030-asc-mailbox",
 				     "apple,t8015-asc-mailbox";
@@ -576,3 +605,59 @@
 };
 
 #include "t8030-pmgr.dtsi"
+
+/* Shared T8030 USB2 device initialization, matching m1n1. */
+&usb2phy {
+	nonposted-mmio;
+	apple,usb-ordered-init;
+	apple,cfg0-device = <0x27373bf3>;
+	apple,cfg1-device = <0x00020c44>;
+	apple,cfg0-host = <0x27373b53>;
+	apple,cfg1-host = <0x00020c44>;
+	status = "okay";
+};
+
+&usb_dart0 {
+	status = "disabled";
+};
+
+&usb_dart1 {
+	status = "disabled";
+};
+
+&usb_drd {
+	/* Keep m1n1 missing-device fixups away from the DWC2 suppliers. */
+	/delete-property/ phys;
+	/delete-property/ phy-names;
+	/delete-property/ iommus;
+	status = "disabled";
+};
+
+&usb_complex {
+	nonposted-mmio;
+	apple,usb-ordered-init;
+	power-domains = <&ps_usb>, <&ps_usbctl>, <&ps_usb2dev>;
+	power-domain-names = "usb", "usbctl", "usb2dev";
+	resets = <&ps_usb>, <&ps_usbctl>, <&ps_usb2dev>;
+	reset-names = "usb", "usbctl", "usb2dev";
+	status = "okay";
+
+	usb_dart_ordered: iommu@239028000 {
+		compatible = "apple,t8103-dart";
+		reg = <0x2 0x39028000 0x0 0x4000>;
+		interrupts = <AIC_IRQ 501 IRQ_TYPE_LEVEL_HIGH>;
+		#iommu-cells = <1>;
+		power-domains = <&ps_usb2dev>;
+		phys = <&usb2phy PHY_TYPE_USB2>;
+		phy-names = "usb2-phy";
+		apple,usb-ordered-init;
+		status = "okay";
+	};
+};
+
+&usb2dev {
+	iommus = <&usb_dart_ordered 0>;
+	/delete-property/ resets;
+	/delete-property/ reset-names;
+	status = "okay";
+};

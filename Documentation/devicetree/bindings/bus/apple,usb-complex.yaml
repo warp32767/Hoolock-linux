@@ -19,6 +19,21 @@ description: |
 
 allOf:
   - $ref: simple-pm-bus.yaml#
+  - if:
+      required:
+        - apple,usb-ordered-init
+    then:
+      properties:
+        compatible:
+          contains:
+            const: apple,t8030-usb-complex
+        power-domains:
+          minItems: 3
+          maxItems: 3
+      required:
+        - power-domain-names
+        - resets
+        - reset-names
 
 # We need a select here so we don't match all nodes with 'simple-pm-bus'.
 select:
@@ -29,6 +44,7 @@ select:
           - apple,s5l8960x-usb-complex
           - apple,t8011-usb-complex
           - apple,t8015-usb-complex
+          - apple,t8030-usb-complex
   required:
     - compatible
 
@@ -47,6 +63,7 @@ properties:
               - apple,s5l8960x-usb-complex
               - apple,t8011-usb-complex
               - apple,t8015-usb-complex
+              - apple,t8030-usb-complex
           - const: simple-pm-bus
 
   reg:
@@ -65,6 +82,28 @@ properties:
     maxItems: 1
 
   nonposted-mmio: true
+
+  apple,usb-ordered-init:
+    type: boolean
+    description:
+      Power and reset the T8030 USB, USBCTL and USB2DEV domains before
+      configuring routing and creating the PHY-dependent DART device.
+
+  power-domain-names:
+    items:
+      - const: usb
+      - const: usbctl
+      - const: usb2dev
+
+  resets:
+    minItems: 3
+    maxItems: 3
+
+  reset-names:
+    items:
+      - const: usb
+      - const: usbctl
+      - const: usb2dev
 
 patternProperties:
   "^.*@[0-9a-f]+$":

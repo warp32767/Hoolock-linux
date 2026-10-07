@@ -322,7 +322,20 @@ static void dwc2_set_apple_silicon_params(struct dwc2_hsotg *hsotg)
 		p->g_tx_fifo_size[fifo] = 244;
 }
 
+static void dwc2_set_t8030_params(struct dwc2_hsotg *hsotg)
+{
+	struct dwc2_core_params *p = &hsotg->params;
+
+	dwc2_set_apple_silicon_params(hsotg);
+	p->phy_type = DWC2_PHY_TYPE_PARAM_UTMI;
+	p->phy_utmi_width = 16;
+	p->ahbcfg = GAHBCFG_HBSTLEN_INCR16 << GAHBCFG_HBSTLEN_SHIFT;
+	p->g_dma = true;
+	p->g_dma_desc = false;
+}
+
 const struct of_device_id dwc2_of_match_table[] = {
+	{ .compatible = "apple,t8030-dwc2", .data = dwc2_set_t8030_params },
 	{ .compatible = "brcm,bcm2835-usb", .data = dwc2_set_bcm_params },
 	{ .compatible = "hisilicon,hi6220-usb", .data = dwc2_set_his_params },
 	{ .compatible = "ingenic,jz4775-otg", .data = dwc2_set_jz4775_params },

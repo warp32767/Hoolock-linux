@@ -28,6 +28,8 @@ properties:
           - apple,t8030-ausb-phy
       - const: apple,ausb-phy
 
+  nonposted-mmio: true
+
   reg:
     maxItems: 1
 
@@ -38,6 +40,13 @@ properties:
     type: boolean
     description:
       The PHY handles muxing between USB 2.0 Host and Device modes.
+
+  apple,usb-ordered-init:
+    type: boolean
+    description:
+      Use the T8030 coordinated reset and PHY initialization sequence.
+      The USB DART holds the PHY powered and the controller enables
+      forced VBUS detection after its endpoints are initialized.
 
   power-domains:
     minItems: 1

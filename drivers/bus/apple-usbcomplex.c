@@ -14,6 +14,8 @@
 #include <linux/of_address.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
+#include <linux/pm_domain.h>
+#include <linux/reset.h>
 
 /* S5L8960X remap registers */
 #define USBX_REMAP_EN_S5L8960X		BIT(8)
@@ -98,6 +100,69 @@ static void apple_usbcomplex_init(struct apple_usbcomplex *complex) {
 	}
 };
 
+/* Finish every shared T8030 USB reset before creating children. */
+static void apple_usbcomplex_domain_put(void *data)
+{
+	pm_runtime_put_sync(data);
+}
+
+static void apple_usbcomplex_runtime_put(void *data)
+{
+	pm_runtime_put_noidle(data);
+}
+
+static int apple_usbcomplex_ordered_prepare(struct device *dev)
+{
+	static const char * const names[] = { "usb", "usbctl", "usb2dev" };
+	const struct dev_pm_domain_attach_data attach = {
+		.pd_names = names,
+		.num_pd_names = ARRAY_SIZE(names),
+		.pd_flags = PD_FLAG_NO_DEV_LINK,
+	};
+	struct reset_control *resets[ARRAY_SIZE(names)];
+	struct dev_pm_domain_list *domains;
+	int ret, i;
+
+	ret = devm_pm_domain_attach_list(dev, &attach, &domains);
+	if (ret < 0)
+		return dev_err_probe(dev, ret, "cannot attach USB domains\n");
+	if (ret != ARRAY_SIZE(names))
+		return -ENODEV;
+
+	/* Keep all three domains active through PHY, DART and gadget setup. */
+	for (i = 0; i < ARRAY_SIZE(names); i++) {
+		ret = pm_runtime_resume_and_get(domains->pd_devs[i]);
+		if (ret < 0)
+			return dev_err_probe(dev, ret, "cannot power USB domain %s\n",
+					     names[i]);
+		ret = devm_add_action_or_reset(dev, apple_usbcomplex_domain_put,
+					       domains->pd_devs[i]);
+		if (ret)
+			return ret;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(resets); i++) {
+		resets[i] = devm_reset_control_get_exclusive(dev, names[i]);
+		if (IS_ERR(resets[i]))
+			return dev_err_probe(dev, PTR_ERR(resets[i]),
+					     "cannot acquire USB reset %s\n", names[i]);
+	}
+	for (i = 0; i < ARRAY_SIZE(resets); i++) {
+		ret = reset_control_reset(resets[i]);
+		if (ret)
+			return dev_err_probe(dev, ret, "USB reset %s failed\n", names[i]);
+	}
+
+	ret = pm_runtime_set_active(dev);
+	if (ret)
+		return ret;
+	ret = devm_pm_runtime_enable(dev);
+	if (ret)
+		return ret;
+	pm_runtime_get_noresume(dev);
+	return devm_add_action_or_reset(dev, apple_usbcomplex_runtime_put, dev);
+}
+
 static int apple_usbcomplex_probe(struct platform_device *pdev)
 {
 	const struct device *dev = &pdev->dev;
@@ -149,7 +214,14 @@ static int apple_usbcomplex_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(&pdev->dev, complex);
 
-	pm_runtime_enable(&pdev->dev);
+	if (of_device_is_compatible(np, "apple,t8030-usb-complex") &&
+	    of_property_read_bool(np, "apple,usb-ordered-init")) {
+		ret = apple_usbcomplex_ordered_prepare(&pdev->dev);
+		if (ret)
+			return ret;
+	} else {
+		pm_runtime_enable(&pdev->dev);
+	}
 
 	apple_usbcomplex_init(complex);
 
@@ -204,7 +276,20 @@ static const struct apple_usbcomplex_hw t8015_usbcomplex = {
 	.enable = apple_usbcomplex_enable_t8011,
 };
 
+/* T8030 routes the separate USB2 device controller through offset 0x48. */
+static void apple_usbcomplex_enable_t8030(void __iomem *base)
+{
+	writel(0, base + USBX_CTL_T8011);
+}
+
+static const struct apple_usbcomplex_hw t8030_usbcomplex = {
+	.remap_regs = { USBX_USBDEV_REMAP_CTL_T8015 },
+	.remap_reg_value = &apple_usbcomplex_remap_reg_value_t8011,
+	.enable = apple_usbcomplex_enable_t8030,
+};
+
 static const struct of_device_id apple_usbcomplex_of_match[] = {
+	{ .compatible = "apple,t8030-usb-complex", .data = &t8030_usbcomplex },
 	{ .compatible = "apple,s5l8960x-usb-complex", .data = &s5l8960x_usbcomplex },
 	{ .compatible = "apple,t8011-usb-complex", .data = &t8011_usbcomplex },
 	{ .compatible = "apple,t8015-usb-complex", .data = &t8015_usbcomplex },

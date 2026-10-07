@@ -12,6 +12,8 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/of.h>
+#include <linux/phy/phy.h>
 #include <linux/module.h>
 #include <linux/spinlock.h>
 #include <linux/interrupt.h>
@@ -4680,6 +4682,8 @@ static int dwc2_hsotg_pullup(struct usb_gadget *gadget, int is_on)
 {
 	struct dwc2_hsotg *hsotg = to_hsotg(gadget);
 	unsigned long flags;
+	bool t8030 = hsotg->phy &&
+		of_device_is_compatible(hsotg->dev->of_node, "apple,t8030-dwc2");
 	int ret = 0;
 
 	dev_dbg(hsotg->dev, "%s: is_on: %d op_state: %d\n", __func__, is_on,
@@ -4704,7 +4708,8 @@ static int dwc2_hsotg_pullup(struct usb_gadget *gadget, int is_on)
 		dwc2_hsotg_core_init_disconnected(hsotg, false);
 		/* Enable ACG feature in device mode,if supported */
 		dwc2_enable_acg(hsotg);
-		dwc2_hsotg_core_connect(hsotg);
+		if (!t8030)
+			dwc2_hsotg_core_connect(hsotg);
 	} else {
 		dwc2_hsotg_core_disconnect(hsotg);
 		dwc2_hsotg_disconnect(hsotg);
@@ -4714,6 +4719,17 @@ static int dwc2_hsotg_pullup(struct usb_gadget *gadget, int is_on)
 	hsotg->gadget.speed = USB_SPEED_UNKNOWN;
 exit:
 	spin_unlock_irqrestore(&hsotg->lock, flags);
+
+	/* Endpoints ready, then VBUS detect, then connect, as in m1n1. */
+	if (!ret && is_on && t8030) {
+		/* Generic PHY operations may sleep outside the gadget lock. */
+		ret = phy_set_mode(hsotg->phy, PHY_MODE_USB_DEVICE);
+		if (ret)
+			return ret;
+		spin_lock_irqsave(&hsotg->lock, flags);
+		dwc2_hsotg_core_connect(hsotg);
+		spin_unlock_irqrestore(&hsotg->lock, flags);
+	}
 
 	return ret;
 }

@@ -15,6 +15,7 @@
 #include <linux/platform_device.h>
 #include <linux/phy/phy.h>
 #include <linux/delay.h>
+#include <linux/pm_runtime.h>
 
 /* These look similar to ATC's USB2PHY_CTL and USB2PHY_SIG */
 #define AUSB_CTL			0x00
@@ -36,6 +37,7 @@ struct ausb_usbphy {
 	struct phy *phy;
 	void __iomem *base;
 	struct phy_provider *phy_provider;
+	bool ordered_init;
 	u32 cfg0_device;
 	u32 cfg1_device;
 	u32 cfg0_host;
@@ -98,17 +100,32 @@ static int ausb_phy_usb2_power_on(struct phy *phy)
 {
 	struct ausb_usbphy *aphy = phy_get_drvdata(phy);
 
-	/* set a sane tunable */
-	writel(aphy->cfg0_device, aphy->base + AUSB_CFG0);
-	writel(aphy->cfg1_device, aphy->base + AUSB_CFG1);
+	if (aphy->ordered_init) {
+		/* Preserve bits outside the T8030 ADT tunable masks. */
+		mask32(aphy->base + AUSB_CFG0, 0xf7777fff,
+		       aphy->cfg0_device & 0xf7777fff);
+		mask32(aphy->base + AUSB_CFG1, 0x00070ff4,
+		       aphy->cfg1_device & 0x00070ff4);
+	} else {
+		writel(aphy->cfg0_device, aphy->base + AUSB_CFG0);
+		writel(aphy->cfg1_device, aphy->base + AUSB_CFG1);
+	}
 
 	set32(aphy->base + AUSB_CTL, AUSB_CTL_RESET);
 	udelay(20);
 	clear32(aphy->base, AUSB_CTL_PWRDOWN | AUSB_CTL_SIDDQ);
 	udelay(20);
 	clear32(aphy->base + AUSB_CTL, AUSB_CTL_RESET);
+	if (aphy->ordered_init) {
+		/* Detection stays off until DWC2 has prepared its endpoints. */
+		udelay(20);
+		clear32(aphy->base + AUSB_SIG, AUSB_SIG_VBUSDET_FORCE_EN);
+	} else {
+		udelay(1500);
+		set32(aphy->base + AUSB_SIG, AUSB_SIG_VBUSDET_FORCE_EN);
+		return 0;
+	}
 	udelay(1500);
-	set32(aphy->base + AUSB_SIG, AUSB_SIG_VBUSDET_FORCE_EN);
 
 	return 0;
 }
@@ -136,11 +153,30 @@ static const struct phy_ops ausb_phy_usb2_ops = {
 	.exit = ausb_phy_usb2_power_off,
 };
 
+static int ausb_phy_ordered_set_mode(struct phy *phy, enum phy_mode mode,
+				     int submode)
+{
+	struct ausb_usbphy *aphy = phy_get_drvdata(phy);
+
+	if (mode != PHY_MODE_USB_DEVICE)
+		return -EINVAL;
+	set32(aphy->base + AUSB_SIG, AUSB_SIG_VBUSDET_FORCE_EN);
+	return 0;
+}
+
+static const struct phy_ops ausb_phy_ordered_ops = {
+	.owner = THIS_MODULE,
+	.set_mode = ausb_phy_ordered_set_mode,
+	.power_on = ausb_phy_usb2_power_on,
+	.power_off = ausb_phy_usb2_power_off,
+};
+
 static int ausb_usbphy_probe(struct platform_device *pdev) {
 	struct ausb_usbphy *aphy;
 	struct device *dev = &pdev->dev;
 	struct device_node *np = dev->of_node;
 	struct resource *res;
+	int ret;
 
 	aphy = devm_kzalloc(&pdev->dev, sizeof(*aphy), GFP_KERNEL);
 	if (!aphy)
@@ -155,13 +191,22 @@ static int ausb_usbphy_probe(struct platform_device *pdev) {
 	if (of_property_read_u32(np, "apple,cfg1-host", &aphy->cfg1_host))
 		return -ENODEV;
 
+	aphy->ordered_init = of_device_is_compatible(np, "apple,t8030-ausb-phy") &&
+		of_property_read_bool(np, "apple,usb-ordered-init");
 	aphy->dev = dev;
 
 	aphy->base = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 	if (IS_ERR(aphy->base))
 		return PTR_ERR(aphy->base);
 
-	aphy->phy = devm_phy_create(aphy->dev, NULL, &ausb_phy_usb2_ops);
+	if (aphy->ordered_init) {
+		/* Propagate runtime PM from the generic PHY to its provider. */
+		ret = devm_pm_runtime_enable(dev);
+		if (ret)
+			return ret;
+	}
+	aphy->phy = devm_phy_create(aphy->dev, NULL, aphy->ordered_init ?
+				   &ausb_phy_ordered_ops : &ausb_phy_usb2_ops);
 	if (IS_ERR(aphy->phy))
 		return PTR_ERR(aphy->phy);
 
