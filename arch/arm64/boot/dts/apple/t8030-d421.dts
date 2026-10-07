@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+/*
+ * Apple D421
+ *
+ * Copyright (c) 2026, Yuriy Havrylyuk <yhavry@gmail.com>
+ */
+/dts-v1/;
+
+#include "t8030.dtsi"
+#include "t8030-common.dtsi"
+
+/ {
+	compatible = "apple,d421", "apple,t8030", "apple,arm-platform";
+	model = "Apple iPhone 11 Pro";
+
+	aliases {
+		bluetooth0 = &bluetooth0;
+		wifi0 = &wifi0;
+	};
+
+	chosen {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		stdout-path = "serial0:115200n8";
+
+		framebuffer@0 {
+			compatible = "apple,simple-framebuffer", "simple-framebuffer";
+			reg = <0 0 0 0>; /* To be filled by loader */
+
+			/* Format properties will be added by loader */
+			status = "disabled";
+		};
+	};
+};
+
+&{/soc} {
+	dsi@230400000 {
+		compatible = "apple,t8030-display-pipe-mipi";
+		reg = <0x2 0x30400000 0x0 0xc0000>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		panel@0 {
+			compatible = "apple,d421-summit", "apple,summit";
+			reg = <0>;
+			max-brightness = <2047>;
+			default-brightness = <598>;
+		};
+	};
+};
+
+&usb2phy {
+	apple,cfg0-device = <0x27373bf3>;
+	apple,cfg1-device = <0x00020c44>;
+	apple,cfg0-host = <0x27373b53>;
+	apple,cfg1-host = <0x00020c44>;
+	status = "okay";
+};
+
+&usb_dart0 {
+	status = "okay";
+};
+
+&usb_dart1 {
+	status = "okay";
+};
+
+&usb_drd {
+	dr_mode = "peripheral";
+	maximum-speed = "high-speed";
+	status = "okay";
+};
+
+&pcie_dart2 {
+	status = "okay";
+};
+
+&pcie0 {
+	status = "okay";
+};
+
+&port02 {
+	bus-range = <1 1>;
+
+	wifi0: wifi@0,0 {
+		compatible = "pci14e4,4425";
+		reg = <0x10000 0x0 0x0 0x0 0x0>;
+		/* To be filled by the loader */
+		local-mac-address = [00 00 00 00 00 00];
+		apple,antenna-sku = "XX";
+		brcm,board-type = "apple,d421";
+	};
+
+	bluetooth0: bluetooth@0,1 {
+		compatible = "pci14e4,5f69";
+		reg = <0x10100 0x0 0x0 0x0 0x0>;
+		/* To be filled by the loader */
+		local-bd-address = [00 00 00 00 00 00];
+		brcm,board-type = "apple,d421";
+	};
+};

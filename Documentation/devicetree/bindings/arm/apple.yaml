@@ -82,6 +82,12 @@ description: |
   - iPhone 8 Plus
   - iPhone X
 
+  Devices based on the "A13" SoC:
+
+  - iPhone 11 Pro
+  - iPhone SE (2nd generation)
+  - iPhone 11
+
   Devices based on the "M1" SoC:
 
   - Mac mini (M1, 2020)
@@ -289,6 +295,15 @@ properties:
               - apple,d211 # iPhone 8 Plus (GSM)
               - apple,d221 # iPhone X (GSM)
           - const: apple,t8015
+          - const: apple,arm-platform
+
+      - description: Apple A13 SoC based platforms
+        items:
+          - enum:
+              - apple,d421 # iPhone 11 Pro
+              - apple,d79 # iPhone SE (2nd generation)
+              - apple,n104 # iPhone 11
+          - const: apple,t8030
           - const: apple,arm-platform
 
       - description: Apple M1 SoC based platforms

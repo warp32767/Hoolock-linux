@@ -97,6 +97,8 @@ struct macsmc_power {
 
 	u32 b0ap_type; /* SMC key type for power now (si16 or si32) */
 
+	u32 b0ap_type; /* SMC key type for power now (si16 or si32) */
+
 	u8 num_cells;
 	int nominal_voltage_mv;
 
@@ -658,6 +660,7 @@ static int macsmc_power_probe(struct platform_device *pdev)
 	struct power_supply_config psy_cfg = {};
 	struct apple_smc_key_info info;
 	struct macsmc_power *power;
+	struct apple_smc_key_info info;
 	bool has_battery = false;
 	bool has_ac_adapter = false;
 	int ret = -ENODEV;
